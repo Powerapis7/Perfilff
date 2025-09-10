@@ -6,110 +6,110 @@ import Canvas, { loadImage } from "canvas";
 const app = express();
 const PORT = 3000;
 
-// Função para baixar imagem do item pelo ID com logs
-async function baixarItemPorID(itemId) {
+// Função para baixar imagens de itens, weapons, title, pet
+async function baixarItemPorID(itemId, tipo = "Item") {
   try {
-    console.log(`🔍 Procurando item ID: ${itemId}`);
+    console.log(`🔍 [${tipo}] Procurando item ID: ${itemId}`);
 
-    // 1️⃣ Pega a lista de itens
+    // Lista de itens
     const { data: items } = await axios.get(
       "https://0xme.github.io/ItemID2/assets/itemData.json"
     );
 
     const item = items.find((i) => String(i.itemID) === String(itemId));
     if (!item) {
-      console.log(`❌ Item ${itemId} não encontrado`);
+      console.log(`❌ [${tipo}] Item ${itemId} não encontrado`);
       return null;
     }
-    console.log(`✅ Item encontrado: ${item.description}`);
+    console.log(`✅ [${tipo}] Item encontrado: ${item.description}`);
 
-    // 2️⃣ Pega o CDN para fallback
+    // CDN fallback
     const { data: cdnList } = await axios.get(
       "https://0xme.github.io/ItemID2/assets/cdn.json"
     );
     const cdn_img_json = cdnList.reduce((acc, cur) => Object.assign(acc, cur), {});
 
-    // 3️⃣ Monta a URL da imagem
+    // URL principal
     let imgUrl = `https://raw.githubusercontent.com/0xme/ff-resources/refs/heads/main/pngs/300x300/${item.icon}.png`;
-    console.log(`📦 URL inicial: ${imgUrl}`);
-
-    // 4️⃣ Testa se a imagem existe, senão usa o cdn
     try {
       await axios.head(imgUrl);
-      console.log(`✅ Imagem encontrada na URL principal`);
+      console.log(`✅ [${tipo}] Imagem encontrada na URL principal`);
     } catch {
       const fallback = cdn_img_json[itemId];
       if (!fallback) {
-        console.log("❌ Nenhuma imagem disponível no CDN");
+        console.log(`❌ [${tipo}] Nenhuma imagem disponível no CDN`);
         return null;
       }
       imgUrl = fallback;
-      console.log(`⚠️ Usando fallback CDN: ${imgUrl}`);
+      console.log(`⚠️ [${tipo}] Usando fallback CDN: ${imgUrl}`);
     }
 
-    // 5️⃣ Baixa a imagem
+    // Baixa a imagem
     const imgRes = await axios.get(imgUrl, { responseType: "arraybuffer" });
-    const fileName = `item_${itemId}.png`;
+    const fileName = `./temp/${tipo}_${itemId}.png`;
     fs.writeFileSync(fileName, imgRes.data);
-    console.log(`📥 Imagem salva: ${fileName}`);
+    console.log(`📥 [${tipo}] Imagem salva: ${fileName}`);
 
-    return fileName; // Retorna o arquivo baixado
+    return fileName;
   } catch (err) {
-    console.error(`❌ Erro ao baixar item ${itemId}: ${err.message}`);
+    console.error(`❌ Erro ao baixar [${tipo}] ${itemId}: ${err.message}`);
     return null;
   }
 }
 
-// Função para desenhar hexágono com imagem
+// Função para desenhar hexágono
 async function drawHex(ctx, x, y, radius, filePath) {
-  const img = await loadImage(filePath);
-  ctx.save();
-  ctx.beginPath();
-  for (let i = 0; i < 6; i++) {
-    ctx.lineTo(
-      x + radius * Math.cos((Math.PI / 3) * i),
-      y + radius * Math.sin((Math.PI / 3) * i)
-    );
+  try {
+    const img = await loadImage(filePath);
+    ctx.save();
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      ctx.lineTo(
+        x + radius * Math.cos((Math.PI / 3) * i),
+        y + radius * Math.sin((Math.PI / 3) * i)
+      );
+    }
+    ctx.closePath();
+    ctx.fillStyle = "#FF0000";
+    ctx.fill();
+    ctx.clip();
+    ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
+    ctx.restore();
+  } catch (err) {
+    console.error(`❌ Erro ao desenhar hexágono: ${err.message}`);
   }
-  ctx.closePath();
-  ctx.fillStyle = "#FF0000";
-  ctx.fill();
-  ctx.clip();
-  ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
-  ctx.restore();
 }
 
-// Rota /outfit
+// Cria pasta temp se não existir
+if (!fs.existsSync("./temp")) fs.mkdirSync("./temp");
+
+// Rota principal
 app.get("/outfit", async (req, res) => {
   try {
     const playerId = req.query.id;
     if (!playerId) return res.status(400).json({ error: "ID necessário" });
 
-    console.log(`\n🔹 Iniciando geração de outfit para o jogador ID: ${playerId}`);
+    console.log(`\n🔹 Gerando outfit para jogador ID: ${playerId}`);
 
-    // 1️⃣ Pega os dados do jogador
-    console.log("🌐 Buscando dados do jogador na API infoff2...");
+    // 1️⃣ Busca dados do jogador
     const { data } = await axios.get(
       `https://world-ecletix.onrender.com/api/infoff2?id=${playerId}`
     );
 
-    const { basicInfo, profileInfo } = data;
+    const { basicInfo, profileInfo, petInfo, weaponSkinShows, title } = data;
+
     if (!basicInfo) return res.status(404).json({ error: "Perfil não encontrado" });
 
     console.log(`✅ Jogador encontrado: ${basicInfo.nickname}`);
-    console.log(`📊 Level: ${basicInfo.level}, Rank: ${basicInfo.rank}, Region: ${basicInfo.region}`);
 
-    // 2️⃣ Baixa a imagem do personagem central (avatarId)
-    console.log("📥 Baixando imagem do personagem central...");
-    const personagemFile = await baixarItemPorID(profileInfo.avatarId);
+    // 2️⃣ Baixa personagem central
+    const personagemFile = await baixarItemPorID(profileInfo.avatarId, "Personagem");
     if (!personagemFile) return res.status(500).json({ error: "Erro ao baixar personagem" });
 
-    // 3️⃣ Banner/avatar embaixo do personagem (link direto clothesImage)
-    console.log("🌄 Carregando banner/avatar...");
-    const banner = await loadImage(profileInfo.clothesImage);
+    // 3️⃣ Carrega banner/avatar (embaixo do personagem)
+    const banner = await loadImage(basicInfo.avatars.png);
 
-    // 4️⃣ Cria o Canvas
-    console.log("🎨 Criando Canvas...");
+    // 4️⃣ Cria Canvas
     const canvas = Canvas.createCanvas(1200, 1200);
     const ctx = canvas.getContext("2d");
 
@@ -117,57 +117,85 @@ app.get("/outfit", async (req, res) => {
     ctx.fillStyle = "#8B0000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Desenha o banner/avatar **embaixo do personagem**
-    const bannerX = canvas.width / 2 - 300;
-    const bannerY = canvas.height / 2 + 150; // embaixo do personagem
-    ctx.drawImage(banner, bannerX, bannerY, 600, 200);
+    // Banner/avatar embaixo do personagem
+    const bannerWidth = 600;
+    const bannerHeight = 200;
+    ctx.drawImage(
+      banner,
+      canvas.width / 2 - bannerWidth / 2,
+      canvas.height / 2 + 180,
+      bannerWidth,
+      bannerHeight
+    );
 
-    // Desenha o personagem central no meio
+    // Personagem central
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
     const personagemImg = await loadImage(personagemFile);
     ctx.drawImage(personagemImg, centerX - 150, centerY - 300, 300, 600);
 
-    // 5️⃣ Baixa e desenha itens/roupas se houver
-    let itemFiles = [];
+    // 5️⃣ Baixa e organiza itens hexagonais
+    let hexItems = [];
+
+    // Roupas
     if (profileInfo.clothesImage.includes("ids=")) {
       const itemIds = profileInfo.clothesImage.split("ids=")[1].split(",");
-      console.log(`🧥 IDs de roupas: ${itemIds.join(", ")}`);
       for (const id of itemIds) {
-        const file = await baixarItemPorID(id);
-        if (file) itemFiles.push(file);
+        const file = await baixarItemPorID(id, "Roupa");
+        if (file) hexItems.push(file);
       }
     }
 
-    console.log(`✅ Total de imagens de itens baixadas: ${itemFiles.length}`);
-
-    // Posições dos hexágonos
-    const positions = [
-      { x: 300, y: 300 },
-      { x: 900, y: 300 },
-      { x: 300, y: 900 },
-      { x: 900, y: 900 },
-      { x: 600, y: 200 },
-      { x: 600, y: 1000 },
-    ];
-
-    // Desenha itens em hexágonos ao redor do personagem
-    console.log("🎯 Desenhando itens no Canvas...");
-    for (let i = 0; i < itemFiles.length && i < positions.length; i++) {
-      console.log(`🔹 Desenhando item: ${itemFiles[i]} na posição (${positions[i].x}, ${positions[i].y})`);
-      await drawHex(ctx, positions[i].x, positions[i].y, 60, itemFiles[i]);
-
-      // Linha conectando ao personagem
-      ctx.beginPath();
-      ctx.moveTo(centerX, centerY);
-      ctx.lineTo(positions[i].x, positions[i].y);
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 2;
-      ctx.stroke();
+    // Title
+    if (title) {
+      const titleFile = await baixarItemPorID(title[0], "Title");
+      if (titleFile) hexItems.push(titleFile);
     }
 
-    // 6️⃣ Envia a imagem final
-    console.log("📤 Enviando imagem final...");
+    // Weapons
+    if (weaponSkinShows && weaponSkinShows.length > 0) {
+      for (const id of weaponSkinShows) {
+        const file = await baixarItemPorID(id, "Weapon");
+        if (file) hexItems.push(file);
+      }
+    }
+
+    // Pet
+    if (petInfo && petInfo.petId) {
+      const petFile = petInfo.skinId
+        ? await baixarItemPorID(petInfo.skinId, "Pet")
+        : await baixarItemPorID(petInfo.petId, "Pet");
+      if (petFile) hexItems.push(petFile);
+    }
+
+    console.log(`✅ Total de hexItems: ${hexItems.length}`);
+
+    // 6️⃣ Desenhar hexágonos em círculo ao redor do personagem
+    const radiusHex = 100;
+    const circleRadius = 400;
+    hexItems.forEach((file, i) => {
+      const angle = (2 * Math.PI * i) / hexItems.length - Math.PI / 2; // começa de cima
+      const x = centerX + circleRadius * Math.cos(angle);
+      const y = centerY + circleRadius * Math.sin(angle);
+
+      drawHex(ctx, x, y, radiusHex, file);
+
+      // Linha conectando ao personagem (na borda do hexágono)
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const lineX = centerX + (dx / dist) * radiusHex;
+      const lineY = centerY + (dy / dist) * radiusHex;
+
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY);
+      ctx.lineTo(lineX, lineY);
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    });
+
+    // 7️⃣ Envia imagem final
     const buffer = canvas.toBuffer();
     res.setHeader("Content-Type", "image/png");
     res.send(buffer);

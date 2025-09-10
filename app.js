@@ -6,18 +6,14 @@ import Canvas, { loadImage } from "canvas";
 const app = express();
 const PORT = 3000;
 
-// Cria pasta temp se não existir
 if (!fs.existsSync("./temp")) fs.mkdirSync("./temp");
 
-// Função para baixar imagens de itens, weapons, title, pet
 async function baixarItemPorID(itemId, tipo = "Item") {
   try {
     console.log(`🔍 [${tipo}] Procurando item ID: ${itemId}`);
-
     const { data: items } = await axios.get(
       "https://0xme.github.io/ItemID2/assets/itemData.json"
     );
-
     const item = items.find((i) => String(i.itemID) === String(itemId));
     if (!item) {
       console.log(`❌ [${tipo}] Item ${itemId} não encontrado`);
@@ -56,11 +52,17 @@ async function baixarItemPorID(itemId, tipo = "Item") {
   }
 }
 
-// Função para desenhar hexágono
 async function drawHex(ctx, x, y, radius, filePath) {
   try {
     const img = await loadImage(filePath);
+
+    // Sombra e contorno
     ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = 15;
+    ctx.shadowOffsetX = 3;
+    ctx.shadowOffsetY = 3;
+
     ctx.beginPath();
     for (let i = 0; i < 6; i++) {
       ctx.lineTo(
@@ -69,8 +71,12 @@ async function drawHex(ctx, x, y, radius, filePath) {
       );
     }
     ctx.closePath();
-    ctx.fillStyle = "#FF0000";
-    ctx.fill();
+
+    // Contorno
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "#FFD700";
+    ctx.stroke();
+
     ctx.clip();
     ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
     ctx.restore();
@@ -104,7 +110,7 @@ app.get("/outfit", async (req, res) => {
     const banner = await loadImage(basicInfo.avatars.png);
 
     // 3️⃣ Cria Canvas
-    const canvas = Canvas.createCanvas(1200, 1200);
+    const canvas = Canvas.createCanvas(1600, 1600);
     const ctx = canvas.getContext("2d");
 
     // Fundo vermelho
@@ -115,15 +121,15 @@ app.get("/outfit", async (req, res) => {
     const centerY = canvas.height / 2;
 
     // Banner/avatar embaixo do personagem
-    const bannerWidth = 600;
-    const bannerHeight = 200;
-    ctx.drawImage(banner, centerX - bannerWidth / 2, centerY + 350, bannerWidth, bannerHeight);
+    const bannerWidth = 800;
+    const bannerHeight = 280;
+    ctx.drawImage(banner, centerX - bannerWidth / 2, centerY + 400, bannerWidth, bannerHeight);
 
     // Personagem central
     const personagemImg = await loadImage(personagemFile);
-    const personagemWidth = 300;
-    const personagemHeight = 600;
-    ctx.drawImage(personagemImg, centerX - personagemWidth/2, centerY - personagemHeight/2, personagemWidth, personagemHeight);
+    const personagemWidth = 400;
+    const personagemHeight = 800;
+    ctx.drawImage(personagemImg, centerX - personagemWidth / 2, centerY - personagemHeight / 2, personagemWidth, personagemHeight);
 
     // 4️⃣ Baixa e organiza itens hexagonais
     let hexItems = [];
@@ -139,11 +145,13 @@ app.get("/outfit", async (req, res) => {
 
     // Title
     if (title) {
-      const titleFile = await baixarItemPorID(title[0], "Title");
-      if (titleFile) hexItems.push(titleFile);
+      for (const t of title) {
+        const titleFile = await baixarItemPorID(t, "Title");
+        if (titleFile) hexItems.push(titleFile);
+      }
     }
 
-    // Weapons
+    // Weapons (todos iguais)
     if (weaponSkinShows && weaponSkinShows.length > 0) {
       for (const id of weaponSkinShows) {
         const file = await baixarItemPorID(id, "Weapon");
@@ -162,11 +170,11 @@ app.get("/outfit", async (req, res) => {
     console.log(`✅ Total de hexItems: ${hexItems.length}`);
 
     // 5️⃣ Desenhar hexágonos em círculo ao redor do personagem
-    const radiusHex = 120;
-    const circleRadius = 450;
+    const radiusHex = 180;
+    const circleRadius = 550;
     for (let i = 0; i < hexItems.length; i++) {
       const file = hexItems[i];
-      const angle = (2 * Math.PI * i) / hexItems.length - Math.PI / 2; // começa de cima
+      const angle = (2 * Math.PI * i) / hexItems.length - Math.PI / 2;
       const x = centerX + circleRadius * Math.cos(angle);
       const y = centerY + circleRadius * Math.sin(angle);
 
@@ -185,7 +193,9 @@ app.get("/outfit", async (req, res) => {
       ctx.moveTo(startX, startY);
       ctx.lineTo(endX, endY);
       ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 4;
+      ctx.shadowColor = "rgba(0,0,0,0.3)";
+      ctx.shadowBlur = 5;
       ctx.stroke();
     }
 
@@ -201,7 +211,6 @@ app.get("/outfit", async (req, res) => {
   }
 });
 
-// Inicia servidor
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });

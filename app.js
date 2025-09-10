@@ -5,141 +5,228 @@ import Canvas, { loadImage } from "canvas";
 const app = express();
 const PORT = 3000;
 
-// Função para baixar imagem de URL e retornar como Image
-async function fetchImage(url) {
-  console.log("⬇️ Baixando imagem:", url);
-  return await loadImage(url);
+// Helper: baixa item do ItemID2 (retorna Buffer) com fallback CDN
+async function baixarItemBuffer(itemId, tipo = "Item") {
+  try {
+    console.log(`🔍 [${tipo}] buscando item ${itemId}`);
+    const { data: items } = await axios.get("https://0xme.github.io/ItemID2/assets/itemData.json");
+    const item = items.find(i => String(i.itemID) === String(itemId));
+    if (!item) {
+      console.log(`⚠️ [${tipo}] item ${itemId} não encontrado`);
+      return null;
+    }
+    const { data: cdnList } = await axios.get("https://0xme.github.io/ItemID2/assets/cdn.json");
+    const cdn_img_json = cdnList.reduce((acc, cur) => Object.assign(acc, cur), {});
+    let url = `https://raw.githubusercontent.com/0xme/ff-resources/refs/heads/main/pngs/300x300/${item.icon}.png`;
+    try {
+      await axios.head(url);
+    } catch {
+      const fb = cdn_img_json[itemId];
+      if (!fb) {
+        console.log(`❌ [${tipo}] sem fallback pra ${itemId}`);
+        return null;
+      }
+      url = fb;
+      console.log(`⚠️ [${tipo}] usando fallback: ${url}`);
+    }
+    const res = await axios.get(url, { responseType: "arraybuffer" });
+    console.log(`📥 [${tipo}] baixado ${itemId}`);
+    return Buffer.from(res.data);
+  } catch (err) {
+    console.error(`❌ Erro baixar ${itemId}: ${err.message}`);
+    return null;
+  }
 }
 
-// Função para criar canvas dinamicamente
-async function generateCanvas(data) {
-  console.log("🎨 Iniciando criação do canvas...");
+// parse clothesImage -> array de ids
+function parseClothesIds(clothesImage) {
+  if (!clothesImage) return [];
+  const s = String(clothesImage);
+  const m = s.match(/ids=([0-9,]+)/);
+  if (m) return m[1].split(",").map(x => x.trim()).filter(Boolean);
+  if (s.includes(",")) return s.split(",").map(x => x.trim()).filter(Boolean);
+  if (/^\d+$/.test(s.trim())) return [s.trim()];
+  return [];
+}
 
-  const { basicInfo, profileInfo, petInfo } = data;
-
-  const canvasSize = 1200;
-  const canvas = Canvas.createCanvas(canvasSize, canvasSize);
-  const ctx = canvas.getContext("2d");
-
-  // Fundo vermelho
-  ctx.fillStyle = "#8B0000";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Personagem no centro
-  const avatarId = profileInfo.avatarId;
-  const characterUrl = `https://raw.githubusercontent.com/0xme/ff-resources/refs/heads/main/pngs/300x300/${avatarId}.png`;
-  const personagem = await fetchImage(characterUrl);
-  const charWidth = 300;
-  const charHeight = 600;
-  const centerX = canvas.width / 2;
-  const centerY = canvas.height / 2 - 50;
-  console.log(`🧍 Personagem posicionado em (${centerX}, ${centerY})`);
-  ctx.drawImage(personagem, centerX - charWidth / 2, centerY - charHeight / 2, charWidth, charHeight);
-
-  // Banner/avatar abaixo do personagem
-  const bannerUrl = basicInfo.avatars.png;
-  const banner = await fetchImage(bannerUrl);
-  const bannerWidth = 400;
-  const bannerHeight = 400;
-  const bannerX = centerX - bannerWidth / 2;
-  const bannerY = centerY + charHeight / 2 - 50; // 50px de distância
-  console.log(`🖼️ Banner posicionado em (${bannerX}, ${bannerY})`);
-  ctx.drawImage(banner, bannerX, bannerY, bannerWidth, bannerHeight);
-
-  // Itens ao redor (roupas + primeira arma + pet)
-  let itemIds = [];
-
-  // Roupas
-  if (profileInfo.clothesImage) {
-    const clothesIds = profileInfo.clothesImage.split("ids=")[1].split(",");
-    itemIds.push(...clothesIds);
-  }
-
-  // Primeira arma
-  if (basicInfo.weaponSkinShows && basicInfo.weaponSkinShows.length > 0) {
-    itemIds.push(basicInfo.weaponSkinShows[0]);
-  }
-
-  // Pet
-  if (petInfo && petInfo.petId) {
-    if (petInfo.skinId) itemIds.push(petInfo.skinId);
-    else itemIds.push(petInfo.petId);
-  }
-
-  console.log("🧩 IDs de itens a baixar:", itemIds);
-
-  // Carregar imagens dos itens
-  const itemImages = [];
-  for (const id of itemIds) {
-    try {
-      const url = `https://raw.githubusercontent.com/0xme/ff-resources/refs/heads/main/pngs/300x300/${id}.png`;
-      const img = await fetchImage(url);
-      itemImages.push(img);
-      console.log(`✅ Item baixado: ${id}`);
-    } catch (err) {
-      console.warn(`⚠️ Erro ao baixar item ${id}: ${err.message}`);
-    }
-  }
-
-  // Desenhar hexes ao redor do personagem
-  const hexR = 100; // raio dos hexes
-  const numItems = itemImages.length;
-  const circleRadius = 400; // distância do centro do personagem
-  for (let i = 0; i < numItems; i++) {
-    const angle = (2 * Math.PI * i) / numItems - Math.PI / 2;
-    const x = centerX + circleRadius * Math.cos(angle);
-    const y = centerY + circleRadius * Math.sin(angle);
-
+// desenha hex (com imagem)
+async function drawHex(ctx, x, y, r, imgBuffer, options = {}) {
+  try {
+    const img = await loadImage(imgBuffer);
     ctx.save();
     ctx.beginPath();
-    for (let h = 0; h < 6; h++) {
-      ctx.lineTo(
-        x + hexR * Math.cos(Math.PI / 3 * h),
-        y + hexR * Math.sin(Math.PI / 3 * h)
-      );
+    for (let i = 0; i < 6; i++) {
+      const px = x + r * Math.cos((Math.PI / 3) * i);
+      const py = y + r * Math.sin((Math.PI / 3) * i);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.fillStyle = "#FF0000";
-    ctx.fill();
-    ctx.clip();
 
-    ctx.drawImage(itemImages[i], x - hexR, y - hexR, hexR * 2, hexR * 2);
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetX = 4;
+    ctx.shadowOffsetY = 4;
+
+    ctx.fillStyle = "#2a0000";
+    ctx.fill();
+
+    ctx.clip();
+    const scaleFactor = options.scaleFactor ?? 1.2;
+    const drawW = r * 2 * scaleFactor;
+    const drawH = r * 2 * scaleFactor;
+    ctx.drawImage(img, x - drawW / 2, y - drawH / 2, drawW, drawH);
     ctx.restore();
 
-    // Linha conectando ao personagem
     ctx.beginPath();
-    ctx.moveTo(centerX, centerY);
-    ctx.lineTo(x, y);
-    ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 4;
+    for (let i = 0; i < 6; i++) {
+      const px = x + r * Math.cos((Math.PI / 3) * i);
+      const py = y + r * Math.sin((Math.PI / 3) * i);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.lineWidth = Math.max(4, r * 0.08);
+    ctx.strokeStyle = "#FFD700";
     ctx.stroke();
+  } catch (err) {
+    console.error("❌ drawHex erro:", err.message);
   }
-
-  console.log("🎉 Canvas finalizado!");
-  return canvas;
 }
 
-// Rota principal
 app.get("/outfit", async (req, res) => {
   try {
-    const id = req.query.id;
-    if (!id) return res.status(400).json({ error: "ID necessário" });
+    const playerId = req.query.id;
+    if (!playerId) return res.status(400).json({ error: "ID necessário" });
 
-    console.log("🔎 Buscando dados da API Free Fire...");
-    const { data } = await axios.get(`https://world-ecletix.onrender.com/api/infoff2?id=${id}`);
-    if (!data.basicInfo) return res.status(404).json({ error: "Perfil não encontrado." });
+    console.log(`\n🔹 Gerando outfit para ID: ${playerId}`);
 
-    const canvas = await generateCanvas(data);
+    const resp = await axios.get(`https://world-ecletix.onrender.com/api/infoff2?id=${playerId}`);
+    const data = resp.data || {};
+    const basicInfo = data.basicInfo || {};
+    const profileInfo = data.profileInfo || {};
+    const petInfo = data.petInfo || profileInfo?.petInfo || {};
 
-    const buffer = canvas.toBuffer("image/png");
+    const weapons =
+      (profileInfo.weaponSkinShows && profileInfo.weaponSkinShows.length) ? profileInfo.weaponSkinShows
+      : (basicInfo.weaponSkinShows && basicInfo.weaponSkinShows.length) ? basicInfo.weaponSkinShows
+      : (data.captainBasicInfo?.weaponSkinShows && data.captainBasicInfo.weaponSkinShows.length) ? data.captainBasicInfo.weaponSkinShows
+      : (data.weaponSkinShows || []);
+    const firstWeaponId = weapons && weapons.length ? weapons[0] : null;
+
+    const bannerUrl = basicInfo.avatars?.png || null;
+
+    const clothesIds = parseClothesIds(profileInfo.clothesImage);
+    console.log(`🔸 clothesIds: ${clothesIds.join(", ") || "nenhum"}`);
+    console.log(`🔸 firstWeaponId: ${firstWeaponId ?? "nenhuma"}`);
+    console.log(`🔸 petInfo: ${petInfo ? JSON.stringify(petInfo) : "nenhum"}`);
+
+    const personagemId = profileInfo.avatarId;
+    let personagemBuf = null;
+    if (personagemId) {
+      personagemBuf = await baixarItemBuffer(personagemId, "Personagem");
+      if (!personagemBuf) console.log("⚠️ personagem não baixado");
+    } else console.log("⚠️ profileInfo.avatarId ausente");
+
+    const itensBuffers = [];
+    for (const id of clothesIds) {
+      const b = await baixarItemBuffer(id, "Roupa");
+      if (b) itensBuffers.push(b);
+    }
+    if (firstWeaponId) {
+      const bw = await baixarItemBuffer(firstWeaponId, "Weapon");
+      if (bw) itensBuffers.push(bw);
+    }
+    if (petInfo && (petInfo.skinId || petInfo.petId)) {
+      const pid = petInfo.skinId || petInfo.petId;
+      const bp = await baixarItemBuffer(pid, "Pet");
+      if (bp) itensBuffers.push(bp);
+    }
+    console.log(`✅ Buffers itens prontos: ${itensBuffers.length}`);
+
+    // --- layout calculado ---
+    const canvasW = 1600;
+    const canvasH = 1600;
+    const canvas = Canvas.createCanvas(canvasW, canvasH);
+    const ctx = canvas.getContext("2d");
+
+    // fundo
+    ctx.fillStyle = "#8B0000";
+    ctx.fillRect(0, 0, canvasW, canvasH);
+
+    // banner
+    const bannerWidth = 1000;
+    const bannerHeight = 320;
+    const bannerX = (canvasW - bannerWidth) / 2;
+    const bannerY = canvasH - bannerHeight - 40;
+    if (bannerUrl) {
+      try {
+        const bannerImg = await loadImage(bannerUrl);
+        ctx.drawImage(bannerImg, bannerX, bannerY, bannerWidth, bannerHeight);
+        console.log("✅ banner desenhado");
+      } catch (err) {
+        console.log("⚠️ falha carregar banner:", err.message);
+      }
+    }
+
+    // personagem
+    const personagemW = 420;
+    const personagemH = 840;
+    const paddingBetween = 60;
+    const centerX = canvasW / 2;
+    const centerY = bannerY - paddingBetween - personagemH / 2;
+
+    if (personagemBuf) {
+      const pImg = await loadImage(personagemBuf);
+      ctx.drawImage(pImg, centerX - personagemW / 2, centerY - personagemH / 2, personagemW, personagemH);
+      console.log("✅ personagem desenhado");
+    }
+
+    // hexes (itens)
+    if (itensBuffers.length > 0) {
+      let hexR = 160;
+      const characterCirc = Math.sqrt((personagemW/2)**2 + (personagemH/2)**2);
+      const margin = 30;
+      let circleRadius = Math.max(characterCirc + hexR + margin, 320);
+      circleRadius = Math.min(circleRadius, centerY - hexR - margin);
+
+      for (let i=0; i<itensBuffers.length; i++) {
+        const angle = (2*Math.PI*i)/itensBuffers.length - Math.PI/2;
+        const x = centerX + circleRadius * Math.cos(angle);
+        const y = centerY + circleRadius * Math.sin(angle);
+
+        await drawHex(ctx, x, y, hexR, itensBuffers[i], { scaleFactor: 1.18 });
+
+        const dx = x - centerX, dy = y - centerY;
+        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        const startRadius = characterCirc * 0.85;
+        const startX = centerX + (dx/dist)*startRadius;
+        const startY = centerY + (dy/dist)*startRadius;
+        const endX = x - (dx/dist)*(hexR*0.9);
+        const endY = y - (dy/dist)*(hexR*0.9);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.lineWidth = Math.max(3, hexR * 0.04);
+        ctx.strokeStyle = "rgba(255,255,255,0.95)";
+        ctx.shadowColor = "rgba(0,0,0,0.25)";
+        ctx.shadowBlur = 6;
+        ctx.stroke();
+        ctx.restore();
+
+        console.log(`🔹 hex ${i} pos (${Math.round(x)},${Math.round(y)})`);
+      }
+    }
+
+    // envia buffer
+    const out = canvas.toBuffer("image/png");
     res.setHeader("Content-Type", "image/png");
-    res.send(buffer);
+    res.send(out);
+    console.log("✅ imagem enviada");
   } catch (err) {
-    console.error("❌ Erro na rota /outfit:", err.message);
+    console.error("❌ erro geral outfit:", err);
     res.status(500).json({ error: "Erro ao gerar imagem" });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server rodando em http://localhost:${PORT}`));

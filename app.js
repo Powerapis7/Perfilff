@@ -116,12 +116,12 @@ app.get("/outfit", async (req, res) => {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
+    const centerY = canvas.height / 2 - 50; // Move o personagem um pouco para cima
 
-    // Banner/avatar embaixo do personagem (mais espaçamento)
-    const bannerWidth = 900;
+    // Banner/avatar embaixo do personagem
+    const bannerWidth = 1000;
     const bannerHeight = 280;
-    ctx.drawImage(banner, centerX - bannerWidth / 2, centerY + 450, bannerWidth, bannerHeight);
+    ctx.drawImage(banner, centerX - bannerWidth / 2, centerY + 500, bannerWidth, bannerHeight);
 
     // Personagem central
     const personagemImg = await loadImage(personagemFile);
@@ -141,16 +141,16 @@ app.get("/outfit", async (req, res) => {
       }
     }
 
-    // Title
-    if (title) {
-      const titleFile = await baixarItemPorID(title, "Title");
-      if (titleFile) hexItems.push(titleFile);
-    }
-
     // Primeira arma
     if (weaponSkinShows && weaponSkinShows.length > 0) {
       const weaponFile = await baixarItemPorID(weaponSkinShows[0], "Weapon");
       if (weaponFile) hexItems.push(weaponFile);
+    }
+
+    // Title
+    if (title) {
+      const titleFile = await baixarItemPorID(title, "Title");
+      if (titleFile) hexItems.push(titleFile);
     }
 
     // Pet
@@ -163,9 +163,9 @@ app.get("/outfit", async (req, res) => {
 
     console.log(`✅ Total de hexItems: ${hexItems.length}`);
 
-    // 5️⃣ Desenhar hexágonos em círculo ao redor do personagem
+    // 5️⃣ Desenhar hexágonos em círculo ao redor do personagem (acima do banner)
     const radiusHex = 180;
-    const circleRadius = 600; // aumenta espaço para não sobrepor o banner
+    const circleRadius = 500; // menor que antes para não tocar no banner
     for (let i = 0; i < hexItems.length; i++) {
       const file = hexItems[i];
       const angle = (2 * Math.PI * i) / hexItems.length - Math.PI / 2;

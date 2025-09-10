@@ -1,29 +1,15 @@
 {
-  "name": "instagram-multi-site-automation",
+  "name": "ff-outfit-canvas",
   "version": "1.0.0",
-  "description": "Automação multi-site para envio de seguidores do Instagram",
-  "main": "run_multi_site.js",
+  "description": "Servidor local para gerar imagens de outfits do Free Fire com Canvas",
+  "type": "module",
+  "main": "app.js",
   "scripts": {
-    "start": "node run_multi_site.js",
-    "test": "node test_single_site.js"
+    "start": "node app.js"
   },
-  "keywords": [
-    "instagram",
-    "automation",
-    "followers",
-    "puppeteer",
-    "multi-site"
-  ],
-  "author": "Automação Multi-Site",
-  "license": "MIT",
   "dependencies": {
-    "telegram": "",
-    "input": "",
-    "axios": ""
-  },
-  "engines": {
-    "node": ">=14.0.0"
+    "axios": "",
+    "canvas": "",
+    "express": ""
   }
 }
-
-

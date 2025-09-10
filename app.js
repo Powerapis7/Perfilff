@@ -12,16 +12,20 @@ async function baixarItemBuffer(itemId, tipo = "Item") {
     const { data: items } = await axios.get("https://0xme.github.io/ItemID2/assets/itemData.json");
     const item = items.find(i => String(i.itemID) === String(itemId));
     if (!item) {
-      console.log(`⚠️ [${tipo}] item ${itemId} não encontrado`);
+      console.log(`⚠️ [${tipo}] item ${itemId} não encontrado no itemData`);
       return null;
     }
     const { data: cdnList } = await axios.get("https://0xme.github.io/ItemID2/assets/cdn.json");
     const cdn_img_json = cdnList.reduce((acc, cur) => Object.assign(acc, cur), {});
     let url = `https://raw.githubusercontent.com/0xme/ff-resources/refs/heads/main/pngs/300x300/${item.icon}.png`;
-    try { await axios.head(url); } 
-    catch { 
-      const fb = cdn_img_json[itemId]; 
-      if (!fb) { console.log(`❌ [${tipo}] sem fallback pra ${itemId}`); return null; }
+    try {
+      await axios.head(url);
+    } catch {
+      const fb = cdn_img_json[itemId];
+      if (!fb) {
+        console.log(`❌ [${tipo}] sem fallback pra ${itemId}`);
+        return null;
+      }
       url = fb;
       console.log(`⚠️ [${tipo}] usando fallback: ${url}`);
     }
@@ -45,12 +49,11 @@ function parseClothesIds(clothesImage) {
   return [];
 }
 
-// desenha hex (com imagem)
-async function drawHex(ctx, x, y, r, imgBuffer) {
+// desenha hex (com imagem) — imagem preenchendo mais que o hex (scaleFactor)
+async function drawHex(ctx, x, y, r, imgBuffer, options = {}) {
   try {
     const img = await loadImage(imgBuffer);
     ctx.save();
-    // path hex
     ctx.beginPath();
     for (let i = 0; i < 6; i++) {
       const px = x + r * Math.cos((Math.PI / 3) * i);
@@ -58,20 +61,25 @@ async function drawHex(ctx, x, y, r, imgBuffer) {
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    // sombra
-    ctx.shadowColor = "rgba(0,0,0,0.35)";
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetX = 3;
-    ctx.shadowOffsetY = 3;
+
+    // sombra suave
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetX = 4;
+    ctx.shadowOffsetY = 4;
+
+    // fundo levemente escuro
     ctx.fillStyle = "#2a0000";
     ctx.fill();
+
+    // clip e desenha imagem maior que o hex
     ctx.clip();
-    // escala
-    const scaleFactor = 1.2;
-    const drawW = r*2*scaleFactor;
-    const drawH = r*2*scaleFactor;
+    const scaleFactor = options.scaleFactor ?? 1.15;
+    const drawW = r * 2 * scaleFactor;
+    const drawH = r * 2 * scaleFactor;
     ctx.drawImage(img, x - drawW/2, y - drawH/2, drawW, drawH);
     ctx.restore();
+
     // contorno
     ctx.beginPath();
     for (let i = 0; i < 6; i++) {
@@ -80,10 +88,12 @@ async function drawHex(ctx, x, y, r, imgBuffer) {
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.lineWidth = Math.max(3, r*0.06);
+    ctx.lineWidth = Math.max(4, r * 0.08);
     ctx.strokeStyle = "#FFD700";
     ctx.stroke();
-  } catch (err) { console.error("❌ drawHex erro:", err.message); }
+  } catch (err) {
+    console.error("❌ drawHex erro:", err.message);
+  }
 }
 
 app.get("/outfit", async (req, res) => {
@@ -97,83 +107,133 @@ app.get("/outfit", async (req, res) => {
     const basicInfo = data.basicInfo || {};
     const profileInfo = data.profileInfo || {};
     const petInfo = data.petInfo || profileInfo?.petInfo || {};
-    const weapons = profileInfo.weaponSkinShows || basicInfo.weaponSkinShows || data.captainBasicInfo?.weaponSkinShows || [];
-    const firstWeaponId = weapons.length ? weapons[0] : null;
+    const weapons =
+      (profileInfo.weaponSkinShows && profileInfo.weaponSkinShows.length) ? profileInfo.weaponSkinShows
+      : (basicInfo.weaponSkinShows && basicInfo.weaponSkinShows.length) ? basicInfo.weaponSkinShows
+      : (data.captainBasicInfo?.weaponSkinShows && data.captainBasicInfo.weaponSkinShows.length) ? data.captainBasicInfo.weaponSkinShows
+      : (data.weaponSkinShows || []);
+    const firstWeaponId = weapons && weapons.length ? weapons[0] : null;
 
+    // banner/avatar url
     const bannerUrl = basicInfo.avatars?.png || null;
+
+    // parse clothes ids
     const clothesIds = parseClothesIds(profileInfo.clothesImage);
     console.log(`🔸 clothesIds: ${clothesIds.join(", ") || "nenhum"}`);
     console.log(`🔸 firstWeaponId: ${firstWeaponId ?? "nenhuma"}`);
     console.log(`🔸 petInfo: ${petInfo ? JSON.stringify(petInfo) : "nenhum"}`);
 
-    const personagemBuf = profileInfo.avatarId ? await baixarItemBuffer(profileInfo.avatarId, "Personagem") : null;
-    const itensBuffers = [];
-    for (const id of clothesIds) { const b = await baixarItemBuffer(id, "Roupa"); if (b) itensBuffers.push(b); }
-    if (firstWeaponId) { const bw = await baixarItemBuffer(firstWeaponId, "Weapon"); if (bw) itensBuffers.push(bw); }
-    if (petInfo && (petInfo.skinId || petInfo.petId)) { const pid = petInfo.skinId || petInfo.petId; const bp = await baixarItemBuffer(pid, "Pet"); if (bp) itensBuffers.push(bp); }
+    // baixar buffers
+    const personagemId = profileInfo.avatarId;
+    let personagemBuf = null;
+    if (personagemId) {
+      personagemBuf = await baixarItemBuffer(personagemId, "Personagem");
+      if (!personagemBuf) console.log("⚠️ personagem não baixado");
+    } else console.log("⚠️ profileInfo.avatarId ausente");
 
+    const itensBuffers = [];
+    for (const id of clothesIds) {
+      const b = await baixarItemBuffer(id, "Roupa");
+      if (b) itensBuffers.push(b);
+    }
+    if (firstWeaponId) {
+      const bw = await baixarItemBuffer(firstWeaponId, "Weapon");
+      if (bw) itensBuffers.push(bw);
+    }
+    if (petInfo && (petInfo.skinId || petInfo.petId)) {
+      const pid = petInfo.skinId || petInfo.petId;
+      const bp = await baixarItemBuffer(pid, "Pet");
+      if (bp) itensBuffers.push(bp);
+    }
     console.log(`✅ Buffers itens prontos: ${itensBuffers.length}`);
 
-    const canvasW = 1600, canvasH = 1600;
+    // --- layout ---
+    const canvasW = 1600;
+    const canvasH = 1600;
     const canvas = Canvas.createCanvas(canvasW, canvasH);
     const ctx = canvas.getContext("2d");
 
+    // banner
+    const bannerWidth = 1000;
+    const bannerHeight = 320;
+    const bannerX = (canvasW - bannerWidth) / 2;
+    const bannerY = canvasH - bannerHeight - 40;
+
+    // personagem mais acima
+    const personagemW = 420;
+    const personagemH = 840;
+    const centerX = canvasW/2;
+    const centerY = bannerY - 60 - personagemH*0.6;
+
+    // fundo
     ctx.fillStyle = "#8B0000";
     ctx.fillRect(0,0,canvasW,canvasH);
 
-    const bannerWidth = 900, bannerHeight = 180;
-    const bannerX = (canvasW-bannerWidth)/2;
-    const bannerY = canvasH-bannerHeight-40;
+    // hexes
+    let hexR = 160;
+    const margin = 30;
+    const characterCirc = Math.sqrt((personagemW/2)**2 + (personagemH/2)**2);
+    let circleRadius = characterCirc + hexR + margin;
+    const maxCircleRadius = centerY - hexR - margin;
+    if (circleRadius > maxCircleRadius) circleRadius = maxCircleRadius;
 
-    const personagemW = 420, personagemH = 840;
-    const paddingBetween = 50;
-    const centerX = canvasW/2;
-    const centerY = bannerY - paddingBetween - personagemH/2;
+    for (let i=0;i<itensBuffers.length;i++) {
+      const angle = (2*Math.PI*i)/itensBuffers.length - Math.PI/2;
+      const x = centerX + circleRadius * Math.cos(angle);
+      const y = centerY + circleRadius * Math.sin(angle);
 
-    // desenha hexes atrás do personagem
-    if (itensBuffers.length > 0) {
-      const hexR = 140;
-      const circleRadius = 360;
-      for (let i=0;i<itensBuffers.length;i++) {
-        const angle = (2*Math.PI*i)/itensBuffers.length - Math.PI/2;
-        const x = centerX + circleRadius*Math.cos(angle);
-        const y = centerY + circleRadius*Math.sin(angle);
+      await drawHex(ctx, x, y, hexR, itensBuffers[i], { scaleFactor: 1.18 });
 
-        // linhas
-        const dx = x-centerX, dy=y-centerY;
-        const dist = Math.sqrt(dx*dx+dy*dy)||1;
-        const startRadius = Math.sqrt((personagemW/2)**2 + (personagemH/2)**2)*0.72;
-        const startX = centerX + dx/dist*startRadius;
-        const startY = centerY + dy/dist*startRadius;
-        const endX = x - dx/dist*(hexR*0.9);
-        const endY = y - dy/dist*(hexR*0.9);
+      // linha atrás do personagem
+      const dx = x - centerX, dy = y - centerY;
+      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      const startRadius = characterCirc * 0.72;
+      const startX = centerX + (dx/dist)*startRadius;
+      const startY = centerY + (dy/dist)*startRadius;
+      const endX = x - (dx/dist)*(hexR*0.9);
+      const endY = y - (dy/dist)*(hexR*0.9);
 
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(endX, endY);
-        ctx.lineWidth = Math.max(3, hexR*0.04);
-        ctx.strokeStyle = "rgba(255,255,255,0.95)";
-        ctx.shadowColor = "rgba(0,0,0,0.25)";
-        ctx.shadowBlur = 6;
-        ctx.stroke();
-        ctx.restore();
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.lineWidth = Math.max(3, hexR * 0.04);
+      ctx.strokeStyle = "rgba(255,255,255,0.95)";
+      ctx.shadowColor = "rgba(0,0,0,0.25)";
+      ctx.shadowBlur = 6;
+      ctx.stroke();
+      ctx.restore();
 
-        await drawHex(ctx, x, y, hexR, itensBuffers[i]);
-      }
+      console.log(`🔹 hex ${i} pos (${Math.round(x)},${Math.round(y)})`);
     }
 
-    // personagem
-    if (personagemBuf) { const pImg = await loadImage(personagemBuf); ctx.drawImage(pImg, centerX-personagemW/2, centerY-personagemH/2, personagemW, personagemH); }
+    // personagem (sobre as linhas, no centro)
+    if (personagemBuf) {
+      const pImg = await loadImage(personagemBuf);
+      ctx.drawImage(pImg, centerX - personagemW/2, centerY - personagemH/2, personagemW, personagemH);
+      console.log("✅ personagem desenhado (frente)");
+    } else {
+      console.log("⚠️ personagem ausente, não desenhado");
+    }
 
-    // banner/avatar
-    if (bannerUrl) { try { const bannerImg = await loadImage(bannerUrl); ctx.drawImage(bannerImg, bannerX, bannerY, bannerWidth, bannerHeight); console.log("✅ banner desenhado"); } 
-    catch(err) { console.log("⚠️ falha carregar banner:", err.message); } }
+    // banner/avatar (embaixo, não sobreposto)
+    if (bannerUrl) {
+      try {
+        const bannerImg = await loadImage(bannerUrl);
+        ctx.drawImage(bannerImg, bannerX, bannerY, bannerWidth, bannerHeight);
+        console.log("✅ banner desenhado");
+      } catch (err) {
+        console.log("⚠️ falha carregar banner:", err.message);
+      }
+    } else {
+      console.log("⚠️ banner url não fornecido");
+    }
 
+    // envia buffer final
     const out = canvas.toBuffer("image/png");
     res.setHeader("Content-Type", "image/png");
     res.send(out);
-    console.log("✅ imagem enviada");
+    console.log("✅ imagem enviada com sucesso");
   } catch (err) {
     console.error("❌ erro geral outfit:", err);
     res.status(500).json({ error: "Erro ao gerar imagem" });

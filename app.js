@@ -96,10 +96,12 @@ async function drawHex(ctx, x, y, r, imgBuffer, options = {}) {
   }
 }
 
+
 app.get("/outfit", async (req, res) => {
   try {
     const playerId = req.query.id;
     if (!playerId) return res.status(400).json({ error: "ID necessário" });
+
     console.log(`\n🔹 Gerando outfit para ID: ${playerId}`);
 
     const resp = await axios.get(`https://world-ecletix.onrender.com/api/infoff2?id=${playerId}`);
@@ -107,6 +109,7 @@ app.get("/outfit", async (req, res) => {
     const basicInfo = data.basicInfo || {};
     const profileInfo = data.profileInfo || {};
     const petInfo = data.petInfo || profileInfo?.petInfo || {};
+
     const weapons =
       (profileInfo.weaponSkinShows && profileInfo.weaponSkinShows.length) ? profileInfo.weaponSkinShows
       : (basicInfo.weaponSkinShows && basicInfo.weaponSkinShows.length) ? basicInfo.weaponSkinShows
@@ -114,22 +117,16 @@ app.get("/outfit", async (req, res) => {
       : (data.weaponSkinShows || []);
     const firstWeaponId = weapons && weapons.length ? weapons[0] : null;
 
-    // banner/avatar url
     const bannerUrl = basicInfo.avatars?.png || null;
-
-    // parse clothes ids
     const clothesIds = parseClothesIds(profileInfo.clothesImage);
+
     console.log(`🔸 clothesIds: ${clothesIds.join(", ") || "nenhum"}`);
     console.log(`🔸 firstWeaponId: ${firstWeaponId ?? "nenhuma"}`);
     console.log(`🔸 petInfo: ${petInfo ? JSON.stringify(petInfo) : "nenhum"}`);
 
-    // baixar buffers
     const personagemId = profileInfo.avatarId;
     let personagemBuf = null;
-    if (personagemId) {
-      personagemBuf = await baixarItemBuffer(personagemId, "Personagem");
-      if (!personagemBuf) console.log("⚠️ personagem não baixado");
-    } else console.log("⚠️ profileInfo.avatarId ausente");
+    if (personagemId) personagemBuf = await baixarItemBuffer(personagemId, "Personagem");
 
     const itensBuffers = [];
     for (const id of clothesIds) {
@@ -145,49 +142,65 @@ app.get("/outfit", async (req, res) => {
       const bp = await baixarItemBuffer(pid, "Pet");
       if (bp) itensBuffers.push(bp);
     }
+
     console.log(`✅ Buffers itens prontos: ${itensBuffers.length}`);
 
-    // --- layout ---
+    // --- layout ajustado ---
     const canvasW = 1600;
     const canvasH = 1600;
     const canvas = Canvas.createCanvas(canvasW, canvasH);
     const ctx = canvas.getContext("2d");
 
-    // banner
-    const bannerWidth = 1000;
-    const bannerHeight = 320;
+    // banner menor e fixo no fundo
+    const bannerWidth = 900;
+    const bannerHeight = 250;
     const bannerX = (canvasW - bannerWidth) / 2;
-    const bannerY = canvasH - bannerHeight - 40;
+    const bannerY = canvasH - bannerHeight - 20;
 
-    // personagem mais acima
-    const personagemW = 420;
-    const personagemH = 840;
-    const centerX = canvasW/2;
-    const centerY = bannerY - 60 - personagemH*0.6;
+    // personagem menor, mais acima
+    const personagemW = 380;
+    const personagemH = 760;
+    const centerX = canvasW / 2;
+    const centerY = bannerY - 60 - personagemH / 2;
+
+    // hexes
+    let hexR = 140;
+    const hexMin = 60;
+    const margin = 20;
+    const characterCirc = Math.sqrt((personagemW/2)**2 + (personagemH/2)**2);
+    let circleRadius = Math.max(characterCirc + hexR + margin, 280);
+    const maxCircleRadius = centerY - hexR - margin; 
+    if (circleRadius > maxCircleRadius) circleRadius = maxCircleRadius;
+
+    console.log(`Layout ajustado: canvas ${canvasW}x${canvasH}, personagem ${personagemW}x${personagemH}, banner ${bannerWidth}x${bannerHeight}, hexR ${hexR}, circleRadius ${circleRadius}`);
 
     // fundo
     ctx.fillStyle = "#8B0000";
-    ctx.fillRect(0,0,canvasW,canvasH);
+    ctx.fillRect(0, 0, canvasW, canvasH);
 
-    // hexes
-    let hexR = 160;
-    const margin = 30;
-    const characterCirc = Math.sqrt((personagemW/2)**2 + (personagemH/2)**2);
-    let circleRadius = characterCirc + hexR + margin;
-    const maxCircleRadius = centerY - hexR - margin;
-    if (circleRadius > maxCircleRadius) circleRadius = maxCircleRadius;
+    // banner
+    if (bannerUrl) {
+      try {
+        const bannerImg = await loadImage(bannerUrl);
+        ctx.drawImage(bannerImg, bannerX, bannerY, bannerWidth, bannerHeight);
+        console.log("✅ banner desenhado");
+      } catch (err) {
+        console.log("⚠️ falha carregar banner:", err.message);
+      }
+    }
 
-    for (let i=0;i<itensBuffers.length;i++) {
-      const angle = (2*Math.PI*i)/itensBuffers.length - Math.PI/2;
+    // hexes ao redor do personagem
+    for (let i = 0; i < itensBuffers.length; i++) {
+      const angle = (2 * Math.PI * i) / itensBuffers.length - Math.PI/2;
       const x = centerX + circleRadius * Math.cos(angle);
       const y = centerY + circleRadius * Math.sin(angle);
+      await drawHex(ctx, x, y, hexR, itensBuffers[i], { scaleFactor: 1.15 });
 
-      await drawHex(ctx, x, y, hexR, itensBuffers[i], { scaleFactor: 1.18 });
-
-      // linha atrás do personagem
-      const dx = x - centerX, dy = y - centerY;
+      // linhas conectando
+      const dx = x - centerX;
+      const dy = y - centerY;
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      const startRadius = characterCirc * 0.72;
+      const startRadius = characterCirc * 0.7;
       const startX = centerX + (dx/dist)*startRadius;
       const startY = centerY + (dy/dist)*startRadius;
       const endX = x - (dx/dist)*(hexR*0.9);
@@ -203,37 +216,20 @@ app.get("/outfit", async (req, res) => {
       ctx.shadowBlur = 6;
       ctx.stroke();
       ctx.restore();
-
-      console.log(`🔹 hex ${i} pos (${Math.round(x)},${Math.round(y)})`);
     }
 
-    // personagem (sobre as linhas, no centro)
+    // personagem (frente)
     if (personagemBuf) {
       const pImg = await loadImage(personagemBuf);
       ctx.drawImage(pImg, centerX - personagemW/2, centerY - personagemH/2, personagemW, personagemH);
       console.log("✅ personagem desenhado (frente)");
-    } else {
-      console.log("⚠️ personagem ausente, não desenhado");
     }
 
-    // banner/avatar (embaixo, não sobreposto)
-    if (bannerUrl) {
-      try {
-        const bannerImg = await loadImage(bannerUrl);
-        ctx.drawImage(bannerImg, bannerX, bannerY, bannerWidth, bannerHeight);
-        console.log("✅ banner desenhado");
-      } catch (err) {
-        console.log("⚠️ falha carregar banner:", err.message);
-      }
-    } else {
-      console.log("⚠️ banner url não fornecido");
-    }
-
-    // envia buffer final
     const out = canvas.toBuffer("image/png");
     res.setHeader("Content-Type", "image/png");
     res.send(out);
-    console.log("✅ imagem enviada com sucesso");
+    console.log("✅ imagem enviada");
+
   } catch (err) {
     console.error("❌ erro geral outfit:", err);
     res.status(500).json({ error: "Erro ao gerar imagem" });

@@ -56,7 +56,6 @@ async function drawHex(ctx, x, y, radius, filePath) {
   try {
     const img = await loadImage(filePath);
 
-    // Sombra e contorno
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.5)";
     ctx.shadowBlur = 15;
@@ -72,7 +71,6 @@ async function drawHex(ctx, x, y, radius, filePath) {
     }
     ctx.closePath();
 
-    // Contorno
     ctx.lineWidth = 5;
     ctx.strokeStyle = "#FFD700";
     ctx.stroke();
@@ -120,10 +118,10 @@ app.get("/outfit", async (req, res) => {
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
 
-    // Banner/avatar embaixo do personagem
-    const bannerWidth = 800;
+    // Banner/avatar embaixo do personagem (mais espaçamento)
+    const bannerWidth = 900;
     const bannerHeight = 280;
-    ctx.drawImage(banner, centerX - bannerWidth / 2, centerY + 400, bannerWidth, bannerHeight);
+    ctx.drawImage(banner, centerX - bannerWidth / 2, centerY + 450, bannerWidth, bannerHeight);
 
     // Personagem central
     const personagemImg = await loadImage(personagemFile);
@@ -145,18 +143,14 @@ app.get("/outfit", async (req, res) => {
 
     // Title
     if (title) {
-      for (const t of title) {
-        const titleFile = await baixarItemPorID(t, "Title");
-        if (titleFile) hexItems.push(titleFile);
-      }
+      const titleFile = await baixarItemPorID(title, "Title");
+      if (titleFile) hexItems.push(titleFile);
     }
 
-    // Weapons (todos iguais)
+    // Primeira arma
     if (weaponSkinShows && weaponSkinShows.length > 0) {
-      for (const id of weaponSkinShows) {
-        const file = await baixarItemPorID(id, "Weapon");
-        if (file) hexItems.push(file);
-      }
+      const weaponFile = await baixarItemPorID(weaponSkinShows[0], "Weapon");
+      if (weaponFile) hexItems.push(weaponFile);
     }
 
     // Pet
@@ -171,7 +165,7 @@ app.get("/outfit", async (req, res) => {
 
     // 5️⃣ Desenhar hexágonos em círculo ao redor do personagem
     const radiusHex = 180;
-    const circleRadius = 550;
+    const circleRadius = 600; // aumenta espaço para não sobrepor o banner
     for (let i = 0; i < hexItems.length; i++) {
       const file = hexItems[i];
       const angle = (2 * Math.PI * i) / hexItems.length - Math.PI / 2;

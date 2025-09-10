@@ -150,7 +150,7 @@ app.get("/outfit", async (req, res) => {
     const ctx = canvas.getContext("2d");
 
     // Banner menor
-    const bannerWidth = 500;
+    const bannerWidth = 700;
     const bannerHeight = 200;
     const bannerX = (canvasW - bannerWidth) / 2;
     const bannerY = canvasH - bannerHeight - 20;

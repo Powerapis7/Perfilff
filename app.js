@@ -96,7 +96,6 @@ async function drawHex(ctx, x, y, r, imgBuffer, options = {}) {
   }
 }
 
-
 app.get("/outfit", async (req, res) => {
   try {
     const playerId = req.query.id;
@@ -145,28 +144,27 @@ app.get("/outfit", async (req, res) => {
 
     console.log(`✅ Buffers itens prontos: ${itensBuffers.length}`);
 
-    // --- layout ajustado ---
     const canvasW = 1600;
     const canvasH = 1600;
     const canvas = Canvas.createCanvas(canvasW, canvasH);
     const ctx = canvas.getContext("2d");
 
-    // banner menor e fixo no fundo
-    const bannerWidth = 900;
-    const bannerHeight = 250;
+    // Banner menor
+    const bannerWidth = 500;
+    const bannerHeight = 200;
     const bannerX = (canvasW - bannerWidth) / 2;
     const bannerY = canvasH - bannerHeight - 20;
 
-    // personagem menor, mais acima
-    const personagemW = 380;
-    const personagemH = 760;
+    // Personagem mantém tamanho, só mais acima
+    const personagemW = 420;
+    const personagemH = 840;
     const centerX = canvasW / 2;
-    const centerY = bannerY - 60 - personagemH / 2;
+    const centerY = bannerY - 220 - personagemH / 2; // mais acima que antes
 
-    // hexes
-    let hexR = 140;
-    const hexMin = 60;
-    const margin = 20;
+    // Hexes
+    let hexR = 160;
+    const hexMin = 70;
+    const margin = 30;
     const characterCirc = Math.sqrt((personagemW/2)**2 + (personagemH/2)**2);
     let circleRadius = Math.max(characterCirc + hexR + margin, 280);
     const maxCircleRadius = centerY - hexR - margin; 
@@ -174,11 +172,11 @@ app.get("/outfit", async (req, res) => {
 
     console.log(`Layout ajustado: canvas ${canvasW}x${canvasH}, personagem ${personagemW}x${personagemH}, banner ${bannerWidth}x${bannerHeight}, hexR ${hexR}, circleRadius ${circleRadius}`);
 
-    // fundo
+    // Fundo
     ctx.fillStyle = "#8B0000";
     ctx.fillRect(0, 0, canvasW, canvasH);
 
-    // banner
+    // Banner
     if (bannerUrl) {
       try {
         const bannerImg = await loadImage(bannerUrl);
@@ -189,18 +187,17 @@ app.get("/outfit", async (req, res) => {
       }
     }
 
-    // hexes ao redor do personagem
+    // Hexes
     for (let i = 0; i < itensBuffers.length; i++) {
       const angle = (2 * Math.PI * i) / itensBuffers.length - Math.PI/2;
       const x = centerX + circleRadius * Math.cos(angle);
       const y = centerY + circleRadius * Math.sin(angle);
-      await drawHex(ctx, x, y, hexR, itensBuffers[i], { scaleFactor: 1.15 });
+      await drawHex(ctx, x, y, hexR, itensBuffers[i], { scaleFactor: 1.18 });
 
-      // linhas conectando
       const dx = x - centerX;
       const dy = y - centerY;
       const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      const startRadius = characterCirc * 0.7;
+      const startRadius = characterCirc * 0.72;
       const startX = centerX + (dx/dist)*startRadius;
       const startY = centerY + (dy/dist)*startRadius;
       const endX = x - (dx/dist)*(hexR*0.9);
@@ -218,7 +215,7 @@ app.get("/outfit", async (req, res) => {
       ctx.restore();
     }
 
-    // personagem (frente)
+    // Personagem (frente)
     if (personagemBuf) {
       const pImg = await loadImage(personagemBuf);
       ctx.drawImage(pImg, centerX - personagemW/2, centerY - personagemH/2, personagemW, personagemH);
@@ -235,5 +232,5 @@ app.get("/outfit", async (req, res) => {
     res.status(500).json({ error: "Erro ao gerar imagem" });
   }
 });
-
+    
 app.listen(PORT, () => console.log(`Server rodando em http://localhost:${PORT}`));

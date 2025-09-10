@@ -40,7 +40,7 @@ async function baixarItemPorID(itemId) {
 }
 
 // Rota para gerar o loadout
-app.get("/loadout", async (req, res) => {
+app.get("/outfit", async (req, res) => {
   const id = req.query.id;
   if (!id) return res.status(400).json({ error: "ID necessário" });
 
